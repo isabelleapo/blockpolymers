@@ -23,6 +23,11 @@ class BlockPolymers:
     nconfs: :class:'int'
         Number of conformers to embed within conformer search
 
+    conf_study: :class:'bool'
+        If 'True', .mol files of all embedded conformers and their energies
+        are saved to a text file. If 'False', only the lowest energy
+        conformers are saved.
+
     solvent: :class:'str'
         Solvent to be used in xTB (available solvents: toluene,thf,
         methanol, h2o, ether, chcl3, acetonitrile, acetone, cs2)
@@ -38,10 +43,6 @@ class BlockPolymers:
         in library A and library B. Calculates IP, EA, optical gap
         and oscillator strength
 
-    conformer_search:
-        Finds lowest energy conformers, returns the .mol files and saves them
-        into 'lowest_conformers' folder
-
     Returns
     -------
     .mol file containing lowest energy conformer
@@ -54,6 +55,7 @@ class BlockPolymers:
                  B_smiles_path,
                  length = 12,
                  nconfs = 30,
+                 conf_study = False,
                  solvent = None,
                  min_osc_strength = 0
                  ):
@@ -62,6 +64,7 @@ class BlockPolymers:
         self.B_smiles_path = B_smiles_path
         self.length = length
         self.nconfs = nconfs
+        self.conf_study = conf_study
         self.solvent = solvent
         self.min_osc_strength = min_osc_strength
 
@@ -127,27 +130,53 @@ class BlockPolymers:
                               polymer, self.nconfs, rdkit.AllChem.ETKDG())
             rdkit.SanitizeMol(polymer)
 
+            if self.conf_study:
+                conf_energies = []
+                conf_labels = []
+                conf_dir = f'conformers/{id}_confs'
+                os.mkdir(conf_dir)
+
             lowest_energy = 10**10
-            for conf in confs:
+            for i, conf in enumerate(confs):
                 ff = rdkit.AllChem.MMFFGetMoleculeForceField(
                 polymer, rdkit.AllChem.MMFFGetMoleculeProperties(polymer), confId=conf)
                 ff.Initialize()
                 energy = ff.CalcEnergy()
 
+                if self.conf_study:
+                    conf_energies.append(energy)
+                    conf_labels.append(i)
+
+                    rdkit.MolToMolFile(polymer, f'conformers/{id}_confs/{i}C_{id}_conf.mol',
+                           confId=conf)
+
                 if energy < lowest_energy:
                     lowest_energy = energy
                     lowest_conf = conf
+            if self.conf_study:
+                conf_labels.append('lowest')
+                conf_energies.append(lowest_energy)
+                conf_info = zip(conf_labels, conf_energies)
+                conf_path = f'{conf_dir}/conformer_information'
+                with open(conf_path, 'w') as f:
+                    f.write('Conformer_number\tEnergy\n')
+                    for label, confen in conf_info:
+                        f.write(f'{label}\t{confen}\n')
+
 
             rdkit.MolToMolFile(polymer, f'lowest_conformers/{id}_lowest-conformer.mol',
                            confId=lowest_conf)
-
 
     def _create_prop_files(self):
         try:
             os.mkdir('lowest_conformers')
         except Exception as e:
             print(e)
-
+        try:
+            if self.conf_study:
+                os.mkdir('conformers')
+        except Exception as e:
+            print(e)
         with open('properties.txt', 'w') as f:
             f.write(('ID\txTB_IP\txTB_EA\txTB_Opticalgap\txTB_oscillator_strength\tSmiles\tA\tB\n'))
 
